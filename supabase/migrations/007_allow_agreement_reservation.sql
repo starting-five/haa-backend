@@ -1,0 +1,22 @@
+-- 007_allow_agreement_reservation.sql
+--
+-- Lets an agreement row be reserved before DocuSign has confirmed an envelope.
+--
+-- 006 describes 'created' as the state between inserting the row and DocuSign
+-- returning an envelope, but its own envelope_id was NOT NULL, so no row could
+-- exist before the envelope did. Creating the envelope first reopens the race
+-- 006 was written to close: two simultaneous taps both reach DocuSign, both
+-- succeed, and the insert that loses agreements_one_active_per_submission
+-- leaves a real envelope with no local record.
+--
+-- Reserving first moves the contention into the database. The losing request
+-- fails on the existing partial unique index before any DocuSign call is made,
+-- re-reads the winning row and reuses it.
+--
+-- Nothing else changes. A plain UNIQUE treats nulls as distinct, so
+-- agreements_envelope_id_key still rejects duplicate envelope identifiers while
+-- allowing many unreserved rows. A reservation whose DocuSign call fails is
+-- marked 'voided' by the application, which the partial index already excludes,
+-- so the patient can start again without a new status value.
+
+alter table agreements alter column envelope_id drop not null;
